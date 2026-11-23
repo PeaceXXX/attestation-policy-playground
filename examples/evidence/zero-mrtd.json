@@ -1,0 +1,1 @@
+{"debug":false,"environment":"prod","evidence":{"age_seconds":42,"collateral":"public-sample","nonce":"9f2c1a7b4e5d6a8b"},"measurements":{"allowed":[],"mrtd":"0000000000000000000000000000000000000000000000000000000000000000"},"platform":"tdx","tcb":{"status":"up_to_date","svn":7},"workload":{"image":"ghcr.io/peacexxx/worker:1.2.3","job_id":"job-8842"}}

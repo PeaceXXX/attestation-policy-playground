@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Attestation Policy Playground</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; } h2 { font-size: 1.05rem; margin-top: 1.5rem; }
+  select, textarea, button { font: inherit; }
+  textarea { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 0.85rem; }
+  pre { background: #f4f4f4; padding: 0.75rem; overflow-x: auto; font-size: 0.85rem; white-space: pre-wrap; }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; }
+  .row label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.25rem; }
+  button { padding: 0.5rem 1.25rem; cursor: pointer; }
+  #verdict { font-size: 1.25rem; font-weight: bold; margin: 1rem 0 0.25rem; }
+  .allow { color: #0a7a2e; } .deny { color: #b00020; }
+  .trace-pass { color: #0a7a2e; } .trace-fail { color: #b00020; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  td, th { border: 1px solid #ddd; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+</style>
+</head>
+<body>
+<h1>Attestation Policy Playground</h1>
+<p>Pick a policy and an evidence bundle (or paste your own evidence JSON),
+then evaluate. The engine is a Rego-inspired subset: allow rules admit a
+workload, deny rules reject it, deny always wins, and anything unmatched is
+denied by default.</p>
+
+<div class="row">
+  <div><label for="policy">Policy</label><select id="policy"></select></div>
+  <div><label for="example">Example evidence</label><select id="example"></select></div>
+  <div><button id="eval">Evaluate</button></div>
+</div>
+
+<h2>Policy source</h2>
+<pre id="source">(loading…)</pre>
+
+<h2>Evidence (JSON)</h2>
+<textarea id="evidence" rows="16" spellcheck="false"></textarea>
+
+<h2>Verdict</h2>
+<div id="verdict"></div>
+<div id="reasons"></div>
+<h2>Rule trace</h2>
+<div id="trace"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let examples = {};
+
+async function load() {
+  const pols = await (await fetch('/api/policies')).json();
+  $('policy').innerHTML = pols.map(p =>
+    `<option value="${p.name}">${p.name} — ${p.title || p.rules + ' rules'}</option>`).join('');
+  const evs = await (await fetch('/api/evidence')).json();
+  evs.forEach(e => examples[e.name] = e.data);
+  $('example').innerHTML = evs.map(e => `<option value="${e.name}">${e.name}</option>`).join('');
+  $('policy').onchange = showPolicy;
+  $('example').onchange = () => { $('evidence').value = JSON.stringify(examples[$('example').value], null, 2); };
+  await showPolicy();
+  $('example').onchange();
+}
+async function showPolicy() {
+  const name = $('policy').value;
+  $('source').textContent = await (await fetch('/api/policies?name=' + encodeURIComponent(name))).text();
+}
+async function evaluate() {
+  let evidence;
+  try { evidence = JSON.parse($('evidence').value); }
+  catch (e) { $('verdict').innerHTML = '<span class="deny">Invalid evidence JSON: ' + e.message + '</span>'; return; }
+  const res = await fetch('/api/evaluate', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({policy: $('policy').value, evidence})
+  });
+  const v = await res.json();
+  if (!res.ok) { $('verdict').innerHTML = '<span class="deny">Error: ' + (v.error || res.status) + '</span>'; return; }
+  $('verdict').innerHTML = v.allowed
+    ? '<span class="allow">ALLOW</span>' : '<span class="deny">DENY</span>';
+  $('reasons').innerHTML = '<ul>' + v.reasons.map(r => `<li>${r}</li>`).join('') + '</ul>';
+  $('trace').innerHTML = '<table><tr><th>Rule</th><th>Effect</th><th>Fired</th><th>Conditions</th></tr>' +
+    v.trace.map(t => `<tr><td>${t.rule_id}</td><td>${t.effect}</td><td>${t.fired ? 'yes' : 'no'}</td><td>` +
+      t.conditions.map(c => `<span class="${c.passed ? 'trace-pass' : 'trace-fail'}">${c.passed ? '✓' : '✗'} ${c.condition}</span><br><small>${c.detail}</small>`).join('<br>') +
+      '</td></tr>').join('') + '</table>';
+}
+$('eval').onclick = evaluate;
+load();
+</script>
+</body>
+</html>
